@@ -7,7 +7,7 @@ from groq import Groq
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
-from fastapi.responses import JSONResponse
+
 app = FastAPI()
 
 
@@ -120,6 +120,7 @@ async def get_sessions():
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         conn.close()
+
 @app.get("/chat/{session_id}")
 async def get_chat_history(session_id: str):
     conn = get_db_connection()
@@ -135,9 +136,10 @@ async def get_chat_history(session_id: str):
         if not rows:
             raise HTTPException(status_code=404, detail="No messages found for this session")
 
-        # Return a clean JSON response
-        chat_history = [{"role": row["role"], "content": row["content"]} for row in rows]
-        return JSONResponse(content=chat_history)
+        # Return only the content from each row as a list of strings
+        chat_history = [row["content"] for row in rows]
+
+        return chat_history  # Return a list of strings directly
 
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
