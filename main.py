@@ -53,6 +53,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     conn = get_db_connection()
 
     try:
+        # Send chat history to the client
         cursor = conn.cursor()
         cursor.execute(
             "SELECT role, content FROM messages WHERE session_id = ? ORDER BY timestamp",
@@ -64,8 +65,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             await websocket.send_json({"role": message["role"], "content": message["content"]})
 
         while True:
+            # Receive user message
             user_message = await websocket.receive_text()
 
+            # Save user message to the database
             conn.execute(
                 "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
                 (session_id, "user", user_message),
@@ -73,20 +76,23 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             conn.commit()
 
             try:
+                # Get AI response
                 response = groq_client.chat.completions.create(
                     messages=[{"role": "user", "content": user_message}],
                     model="mixtral-8x7b-32768", 
                     stream=True
                 )
 
+                # Stream AI response to the client
                 ai_response = ""
                 for chunk in response:
                     token = chunk.choices[0].delta.content  
                     if token:
                         ai_response += token
-                        await websocket.send_text(token)
+                        await websocket.send_text(token)  # Send plain text, not JSON
                         await asyncio.sleep(0.02) 
 
+                # Save AI response to the database
                 conn.execute(
                     "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
                     (session_id, "assistant", ai_response),
@@ -101,7 +107,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         print(f"Session {session_id} disconnected")
     finally:
         conn.close()
-
 
 @app.get("/sessions")
 async def get_sessions():
