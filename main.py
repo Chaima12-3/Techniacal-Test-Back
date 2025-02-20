@@ -1,5 +1,4 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import asyncio
@@ -54,7 +53,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     conn = get_db_connection()
 
     try:
-      
         cursor = conn.cursor()
         cursor.execute(
             "SELECT role, content FROM messages WHERE session_id = ? ORDER BY timestamp",
@@ -66,9 +64,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             await websocket.send_json({"role": message["role"], "content": message["content"]})
 
         while True:
-           
             user_message = await websocket.receive_text()
-
 
             conn.execute(
                 "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
@@ -77,14 +73,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             conn.commit()
 
             try:
-            
                 response = groq_client.chat.completions.create(
                     messages=[{"role": "user", "content": user_message}],
                     model="mixtral-8x7b-32768", 
                     stream=True
                 )
 
-               
                 ai_response = ""
                 for chunk in response:
                     token = chunk.choices[0].delta.content  
@@ -121,9 +115,6 @@ async def get_sessions():
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         conn.close()
-
-
-
 @app.get("/chat/{session_id}")
 async def get_chat_history(session_id: str):
     conn = get_db_connection()
@@ -139,7 +130,6 @@ async def get_chat_history(session_id: str):
         if not rows:
             raise HTTPException(status_code=404, detail="No messages found for this session")
 
-        # Return a clean JSON response
         chat_history = [{"role": row["role"], "content": row["content"]} for row in rows]
         return JSONResponse(content=chat_history)
 
@@ -161,6 +151,22 @@ async def delete_all_sessions():
         cursor.execute("DELETE FROM messages")
         conn.commit()
         return {"status": "All sessions deleted successfully"}
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+@app.put("/update_messages")
+async def update_messages():
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE messages
+            SET content = JSON_EXTRACT(content, '$.content')
+            WHERE content LIKE '{%}';
+        """)
+        conn.commit()
+        return {"status": "Messages updated successfully"}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
