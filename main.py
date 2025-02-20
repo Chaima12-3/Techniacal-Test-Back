@@ -53,7 +53,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     conn = get_db_connection()
 
     try:
-        # Send chat history to the client
+      
         cursor = conn.cursor()
         cursor.execute(
             "SELECT role, content FROM messages WHERE session_id = ? ORDER BY timestamp",
@@ -65,10 +65,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             await websocket.send_json({"role": message["role"], "content": message["content"]})
 
         while True:
-            # Receive user message
+           
             user_message = await websocket.receive_text()
 
-            # Save user message to the database
+
             conn.execute(
                 "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
                 (session_id, "user", user_message),
@@ -76,23 +76,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             conn.commit()
 
             try:
-                # Get AI response
+            
                 response = groq_client.chat.completions.create(
                     messages=[{"role": "user", "content": user_message}],
                     model="mixtral-8x7b-32768", 
                     stream=True
                 )
 
-                # Stream AI response to the client
+               
                 ai_response = ""
                 for chunk in response:
                     token = chunk.choices[0].delta.content  
                     if token:
                         ai_response += token
-                        await websocket.send_text(token)  # Send plain text, not JSON
+                        await websocket.send_text(token)
                         await asyncio.sleep(0.02) 
 
-                # Save AI response to the database
                 conn.execute(
                     "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
                     (session_id, "assistant", ai_response),
@@ -107,6 +106,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         print(f"Session {session_id} disconnected")
     finally:
         conn.close()
+
 
 @app.get("/sessions")
 async def get_sessions():
@@ -135,6 +135,7 @@ async def get_chat_history(session_id: str):
         if not rows:
             raise HTTPException(status_code=404, detail="No messages found for this session")
 
+        # Return a clean JSON response
         chat_history = [{"role": row["role"], "content": row["content"]} for row in rows]
         return JSONResponse(content=chat_history)
 
@@ -156,22 +157,6 @@ async def delete_all_sessions():
         cursor.execute("DELETE FROM messages")
         conn.commit()
         return {"status": "All sessions deleted successfully"}
-    except sqlite3.Error as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-    finally:
-        conn.close()
-@app.put("/update_messages")
-async def update_messages():
-    conn = get_db_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE messages
-            SET content = JSON_EXTRACT(content, '$.content')
-            WHERE content LIKE '{%}';
-        """)
-        conn.commit()
-        return {"status": "Messages updated successfully"}
     except sqlite3.Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
